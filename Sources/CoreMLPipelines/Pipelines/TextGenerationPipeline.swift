@@ -169,10 +169,13 @@ private extension TextGenerationPipeline {
 
                             defer { promptInterval.end(metadata: tokens.count) }
 
-                            let inputIDs = MLShapedArray(scalars: tokens.map(Int32.init), shape: [1, tokens.count])
+                            let inputIDs = MLShapedArray(
+                                scalars: tokens.suffix(model.contextSize).map(Int32.init),
+                                shape: [1, min(tokens.count, model.contextSize)]
+                            )
 
                             let causalMask = await signposter.measure("Create Causal Mask") {
-                                await MLTensor.causalMask(size: tokens.count)
+                                await MLTensor.causalMask(size: min(tokens.count, model.contextSize))
                                     .shapedArray(of: Float16.self)
                             }
 
@@ -200,7 +203,7 @@ private extension TextGenerationPipeline {
                                 let inputIDs = MLShapedArray(scalars: [Int32(tokens.last!)], shape: [1, 1])
                                 let causalMask = MLShapedArray<Float16>(
                                     repeating: 0,
-                                    shape: [1, 1, 1, tokens.count]
+                                    shape: [1, 1, 1, min(tokens.count, model.contextSize)]
                                 )
 
                                 let logits = try await signposter.measure("Extend Prediction") {
