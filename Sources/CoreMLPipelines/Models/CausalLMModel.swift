@@ -8,13 +8,19 @@ class CausalLMModel {
     init(model: MLModel) {
         assert(model.modelDescription.inputDescriptionsByName["input_ids"] != nil)
         assert(model.modelDescription.inputDescriptionsByName["causal_mask"] != nil)
+        assert(model.modelDescription.stateDescriptionsByName["key_cache"] != nil)
+        assert(model.modelDescription.stateDescriptionsByName["value_cache"] != nil)
         assert(model.modelDescription.outputDescriptionsByName["logits"] != nil)
         self.model = model
+        self.contextSize = model.modelDescription.stateDescriptionsByName["key_cache"]!
+            .stateConstraint!.bufferShape[3]
     }
 
     // MARK: Internal
 
     typealias KVCache = MLState
+    
+    let contextSize: Int
 
     class func load(
         contentsOf url: URL,

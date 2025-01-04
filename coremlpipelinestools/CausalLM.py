@@ -69,11 +69,30 @@ class KVCache(Cache):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         position = cache_kwargs.get("cache_position", None)
         assert position is not None, "cache_position required to update cache."
-        begin, end = self.past_seen_tokens, self.past_seen_tokens + position.shape[-1]
+
+        new_tokens = position.shape[-1]
+        context_size = self.k.shape[3]
+
+        begin, end = context_size - self.past_seen_tokens, context_size
+
+        self.k[
+            layer_idx, :, : k_state.shape[1], begin - new_tokens : end - new_tokens, :
+        ] = self.k[layer_idx, :, : k_state.shape[1], begin:end, :]
+
+        self.v[
+            layer_idx, :, : v_state.shape[1], begin - new_tokens : end - new_tokens, :
+        ] = self.v[layer_idx, :, : v_state.shape[1], begin:end, :]
+
+        begin = end - new_tokens
+
         self.k[layer_idx, :, : k_state.shape[1], begin:end, :] = k_state
         self.v[layer_idx, :, : v_state.shape[1], begin:end, :] = v_state
-        k_state = self.k[layer_idx, :, :, :end, :]
-        v_state = self.v[layer_idx, :, :, :end, :]
+
+        begin = end - self.past_seen_tokens - new_tokens
+
+        k_state = self.k[layer_idx, :, :, begin:end, :]
+        v_state = self.v[layer_idx, :, :, begin:end, :]
+
         return k_state, v_state
 
     def get_seq_length(self, _: int = 0) -> int:
@@ -131,8 +150,9 @@ model: torch.nn.Module = Model(
 log("Tracing model…")
 example_inputs: tuple[torch.Tensor, ...] = (
     torch.zeros((1, 2), dtype=torch.int32),
-    torch.zeros((1, 1, 2, 5), dtype=torch.float16 if args.half else torch.float32),
+    torch.zeros((1, 1, 2, 2), dtype=torch.float16 if args.half else torch.float32),
 )
+
 traced_model: torch.jit.ScriptModule = torch.jit.trace(
     model.eval(), example_inputs=example_inputs
 )
@@ -167,7 +187,6 @@ mlmodel: ct.models.MLModel = ct.convert(
     outputs=outputs,
     states=states,
     minimum_deployment_target=ct.target.macOS15,
-    skip_model_load=True,
 )
 
 if vars(args)["4_bit"] or vars(args)["8_bit"]:
